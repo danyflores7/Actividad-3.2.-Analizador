@@ -12,7 +12,7 @@ reserved = {
     'do': 'DO'
 }
 
-tokens = ['ID', 'INTLIT', 'LE', 'GE'] + list(reserved.values())
+tokens = ['ID', 'INTLIT', 'FLOATLIT', 'LE', 'GE'] + list(reserved.values())
 
 t_LE = r'<='
 t_GE = r'>='
@@ -24,6 +24,11 @@ def t_ID(t):
      r'[a-zA-Z_][a-zA-Z_0-9]*'
      t.type = reserved.get(t.value, 'ID')
      return t
+
+def t_FLOATLIT(t):
+    r'[0-9]+\.[0-9]+'
+    t.value = float(t.value)
+    return t
 
 def t_INTLIT(t):
     r'[0-9]+'
@@ -225,6 +230,12 @@ def p_Factor_INT(p):
     '''
     p[0] = Literal(p[1], 'INT')
 
+def p_Factor_FLOAT(p):
+    '''
+    Factor : FLOATLIT
+    '''
+    p[0] = Literal(p[1], 'FLOAT')
+
 def p_Factor_ID(p):
     '''
     Factor : ID
@@ -276,6 +287,7 @@ def p_error(p):
 from llvmlite import ir
 
 intType = ir.IntType(32)
+floatType = ir.FloatType()
 module = ir.Module(name="prog")
 
 # int main() {
@@ -283,12 +295,18 @@ class IRGenerator(Visitor):
     def __init__(self):
         self.stack = []
         self.symbol_table = dict()
+        self.variable_types = dict()
         self.builder = None
         self.current_func = None
 
     def visit_function(self, node: FunctionNode):
         self.symbol_table = dict()
-        fnty = ir.FunctionType(intType, [intType] * len(node.parameters))
+        self.variable_types = dict()
+        
+        ret_type = floatType if node.return_type == 'float' else intType
+        param_types = [floatType if p.type == 'float' else intType for p in node.parameters]
+        
+        fnty = ir.FunctionType(ret_type, param_types)
         func = ir.Function(module, fnty, name=node.func_name)
         self.current_func = func
         
@@ -299,9 +317,14 @@ class IRGenerator(Visitor):
         for i, param_node in enumerate(node.parameters):
             arg = func.args[i]
             arg.name = param_node.name
-            ptr = self.builder.alloca(intType, name=param_node.name)
+            
+            p_type = param_node.type
+            llvm_type = floatType if p_type == 'float' else intType
+            
+            ptr = self.builder.alloca(llvm_type, name=param_node.name)
             self.builder.store(arg, ptr)
             self.symbol_table[param_node.name] = ptr
+            self.variable_types[param_node.name] = p_type
             
         for decl in node.declarations:
             decl.accept(self)
@@ -386,15 +409,23 @@ class IRGenerator(Visitor):
         self.builder.position_at_end(exit_block)
 
     def visit_literal(self, node: Literal) -> None:
-        self.stack.append(
-            intType(int(node.value))
-        )
+        if node.type == 'FLOAT':
+            self.stack.append(
+                floatType(float(node.value))
+            )
+        else:
+            self.stack.append(
+                intType(int(node.value))
+            )
     
     def visit_variable(self, node: Variable):
         if node.name not in self.symbol_table:
             # Declaration: allocate memory
-            ptr = self.builder.alloca(intType, name=node.name)
+            v_type = node.type
+            llvm_type = floatType if v_type == 'float' else intType
+            ptr = self.builder.alloca(llvm_type, name=node.name)
             self.symbol_table[node.name] = ptr
+            self.variable_types[node.name] = v_type
         else:
             # Reference: load value from memory and push to stack
             ptr = self.symbol_table[node.name]
@@ -405,6 +436,13 @@ class IRGenerator(Visitor):
         node.expr.accept(self)
         val = self.stack.pop()
         ptr = self.symbol_table[node.var_name]
+        var_type = self.variable_types.get(node.var_name, 'int')
+        
+        if var_type == 'float' and val.type == intType:
+            val = self.builder.sitofp(val, floatType)
+        elif var_type == 'int' and val.type == floatType:
+            val = self.builder.fptosi(val, intType)
+            
         self.builder.store(val, ptr)
 
     def visit_return(self, node: ReturnNode):
@@ -512,11 +550,10 @@ class IRGenerator(Visitor):
 # %%
 data = """
 int main() {
+    float x;
     int y;
-    y = 5;
-    do {
-        y = y + 1;
-    } while (y < 10);
+    y = 10;
+    x = y;
     printf(y);
     return 0;
 }

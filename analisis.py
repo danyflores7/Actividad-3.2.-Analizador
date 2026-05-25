@@ -120,6 +120,12 @@ def p_Statement_return(p):
     """
     p[0] = ReturnNode(p[2])
 
+def p_Statement_call(p):
+    """
+    Statement : ID '(' Expression ')' ';'
+    """
+    p[0] = CallNode(p[1], p[3])
+
 def p_Assignment(p):
     """ 
     Assignment : ID '=' Expression ';'
@@ -363,11 +369,29 @@ class IRGenerator(Visitor):
     def visit_call(self, node: CallNode):
         node.expr.accept(self)
         arg_val = self.stack.pop()
-        callee_func = module.globals.get(node.func_name)
-        if callee_func is None:
-            raise ValueError(f"Function '{node.func_name}' not defined in module")
-        res = self.builder.call(callee_func, [arg_val])
-        self.stack.append(res)
+        if node.func_name == "printf":
+            printf_func = module.globals.get("printf")
+            voidptr_ty = ir.IntType(8).as_pointer()
+            if printf_func is None:
+                printf_ty = ir.FunctionType(ir.IntType(32), [voidptr_ty], var_arg=True)
+                printf_func = ir.Function(module, printf_ty, name="printf")
+            
+            fmt_str = "%d\n\0"
+            c_fmt = ir.Constant(ir.ArrayType(ir.IntType(8), len(fmt_str)), bytearray(fmt_str.encode("utf8")))
+            global_fmt = ir.GlobalVariable(module, c_fmt.type, name=f"fstr_{len(list(module.global_values))}")
+            global_fmt.linkage = 'internal'
+            global_fmt.global_constant = True
+            global_fmt.initializer = c_fmt
+            
+            fmt_arg = self.builder.bitcast(global_fmt, voidptr_ty)
+            res = self.builder.call(printf_func, [fmt_arg, arg_val])
+            self.stack.append(res)
+        else:
+            callee_func = module.globals.get(node.func_name)
+            if callee_func is None:
+                raise ValueError(f"Function '{node.func_name}' not defined in module")
+            res = self.builder.call(callee_func, [arg_val])
+            self.stack.append(res)
 
 # %%
 data = """
@@ -376,6 +400,11 @@ int factorial(int n) {
         return 1;
     }
     return n * factorial(n - 1);
+}
+
+int main() {
+    printf(factorial(5));
+    return 0;
 }
 """
 lexer = lex.lex()

@@ -21,13 +21,6 @@ class Variable(ASTNode):
         self.type = type
 
     def accept(self, visitor: Visitor):
-        if hasattr(visitor, 'symbol_table') and hasattr(visitor, 'stack'):
-            if self.name in visitor.symbol_table:
-                from llvmlite import ir
-                intType = ir.IntType(32)
-                visitor.stack.append(intType(0))
-                visitor.visit_variable(self)
-                return
         visitor.visit_variable(self)
 
 class BinaryOp(ASTNode):
@@ -62,6 +55,14 @@ class WhileNode(ASTNode):
     def accept(self, visitor: Visitor):
         visitor.visit_while(self)
 
+class AssignmentNode(ASTNode):
+    def __init__(self, var_name: str, expr: ASTNode) -> None:
+        self.var_name = var_name
+        self.expr = expr
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_assignment(self)
+
 class Visitor(ABC):
     @abstractmethod
     def visit_literal(self, node: Literal) -> None:
@@ -80,6 +81,9 @@ class Visitor(ABC):
         pass
     @abstractmethod
     def visit_while(self, node: WhileNode) -> None:
+        pass
+    @abstractmethod
+    def visit_assignment(self, node: AssignmentNode) -> None:
         pass
 
 class Calculator(Visitor):
@@ -116,3 +120,6 @@ class Calculator(Visitor):
     def visit_while(self, node: WhileNode) -> None:
         node.condition.accept(self)
         node.body.accept(self)
+
+    def visit_assignment(self, node: AssignmentNode) -> None:
+        node.expr.accept(self)

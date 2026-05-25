@@ -1,7 +1,7 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode
 
 reserved = {
     'while': 'WHILE'
@@ -85,7 +85,7 @@ def p_Assignment(p):
     """ 
     Assignment : ID '=' Expression ';'
     """
-    p[0] = p[3]
+    p[0] = AssignmentNode(p[1], p[3])
 
 def p_Expression(p):
     """
@@ -224,7 +224,21 @@ class IRGenerator(Visitor):
         )
     
     def visit_variable(self, node: Variable):
-        self.symbol_table[node.name] = node.type
+        if node.name not in self.symbol_table:
+            # Declaration: allocate memory
+            ptr = builder.alloca(intType, name=node.name)
+            self.symbol_table[node.name] = ptr
+        else:
+            # Reference: load value from memory and push to stack
+            ptr = self.symbol_table[node.name]
+            val = builder.load(ptr, name=node.name)
+            self.stack.append(val)
+
+    def visit_assignment(self, node: AssignmentNode):
+        node.expr.accept(self)
+        val = self.stack.pop()
+        ptr = self.symbol_table[node.var_name]
+        builder.store(val, ptr)
 
     def visit_binary_op(self, node: BinaryOp) -> None:
         node.lhs.accept(self)

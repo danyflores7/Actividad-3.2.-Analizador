@@ -1,10 +1,12 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode
 
 reserved = {
-    'while': 'WHILE'
+    'while': 'WHILE',
+    'if': 'IF',
+    'else': 'ELSE'
 }
 
 tokens = ['ID', 'INTLIT', 'LE', 'GE'] + list(reserved.values())
@@ -80,6 +82,18 @@ def p_Statement_while(p):
     Statement : WHILE '(' Expression ')' Statement
     """
     p[0] = WhileNode(p[3], p[5])
+
+def p_Statement_if(p):
+    """
+    Statement : IF '(' Expression ')' Statement
+    """
+    p[0] = IfNode(p[3], p[5], None)
+
+def p_Statement_if_else(p):
+    """
+    Statement : IF '(' Expression ')' Statement ELSE Statement
+    """
+    p[0] = IfNode(p[3], p[5], p[7])
 
 def p_Assignment(p):
     """ 
@@ -218,6 +232,39 @@ class IRGenerator(Visitor):
         # 5. Position in exit_block for subsequent instructions
         builder.position_at_end(exit_block)
 
+    def visit_if(self, node: IfNode):
+        func = builder.function
+        
+        # 1. Create blocks
+        then_block = func.append_basic_block(name='if-then')
+        else_block = func.append_basic_block(name='if-else') if node.else_stmt else None
+        exit_block = func.append_basic_block(name='if-exit')
+        
+        # 2. Evaluate condition
+        node.condition.accept(self)
+        cond_val = self.stack.pop()
+        
+        # Ensure condition is i1
+        if cond_val.type != ir.IntType(1):
+            cond_val = builder.icmp_signed('!=', cond_val, intType(0))
+            
+        false_dest = else_block if else_block else exit_block
+        builder.cbranch(cond_val, then_block, false_dest)
+        
+        # 3. Position in then_block and compile
+        builder.position_at_end(then_block)
+        node.then_stmt.accept(self)
+        builder.branch(exit_block)
+        
+        # 4. Position in else_block and compile (if exists)
+        if else_block and node.else_stmt:
+            builder.position_at_end(else_block)
+            node.else_stmt.accept(self)
+            builder.branch(exit_block)
+            
+        # 5. Position in exit_block
+        builder.position_at_end(exit_block)
+
     def visit_literal(self, node: Literal) -> None:
         self.stack.append(
             intType(int(node.value))
@@ -258,8 +305,10 @@ data = """
 int main() {
     int y;
     y = 5;
-    while (y < 10) {
-        y = y + 1;
+    if (y < 10) {
+        y = 1;
+    } else {
+        y = 2;
     }
 }
 """

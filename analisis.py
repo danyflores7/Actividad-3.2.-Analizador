@@ -1,7 +1,7 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode, CallNode
 
 reserved = {
     'while': 'WHILE',
@@ -148,12 +148,13 @@ def p_RelOp(p):
 def p_Addition(p):
     '''
     Addition : Addition '+' Term
+             | Addition '-' Term
              | Term
     '''
     if len(p) == 2:
         p[0] = p[1]
     else:
-        p[0] = BinaryOp('+', p[1], p[3])
+        p[0] = BinaryOp(p[2], p[1], p[3])
 
 def p_Term(p):
     '''
@@ -182,6 +183,12 @@ def p_Factor_EXP(p):
     Factor : '(' Expression ')'
     '''
     p[0] = p[2]
+
+def p_Factor_call(p):
+    """
+    Factor : ID '(' Expression ')'
+    """
+    p[0] = CallNode(p[1], p[3])
         
 def p_error(p):
     print("Syntax error in input!", p)
@@ -345,11 +352,22 @@ class IRGenerator(Visitor):
         lhs = self.stack.pop()
         if node.op == '+':
             self.stack.append(self.builder.add(lhs, rhs))
+        elif node.op == '-':
+            self.stack.append(self.builder.sub(lhs, rhs))
         elif node.op == '*':
             self.stack.append(self.builder.mul(lhs, rhs))
         else:
             tmp = self.builder.icmp_signed(node.op, lhs, rhs)
             self.stack.append(self.builder.zext(tmp, intType))
+
+    def visit_call(self, node: CallNode):
+        node.expr.accept(self)
+        arg_val = self.stack.pop()
+        callee_func = module.globals.get(node.func_name)
+        if callee_func is None:
+            raise ValueError(f"Function '{node.func_name}' not defined in module")
+        res = self.builder.call(callee_func, [arg_val])
+        self.stack.append(res)
 
 # %%
 data = """
@@ -357,7 +375,7 @@ int factorial(int n) {
     if (n <= 1) {
         return 1;
     }
-    return 5; 
+    return n * factorial(n - 1);
 }
 """
 lexer = lex.lex()

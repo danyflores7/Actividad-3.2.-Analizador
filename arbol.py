@@ -91,6 +91,14 @@ class FunctionNode(ASTNode):
     def accept(self, visitor: Visitor):
         visitor.visit_function(self)
 
+class CallNode(ASTNode):
+    def __init__(self, func_name: str, expr: ASTNode) -> None:
+        self.func_name = func_name
+        self.expr = expr
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_call(self)
+
 class Visitor(ABC):
     @abstractmethod
     def visit_literal(self, node: Literal) -> None:
@@ -121,6 +129,9 @@ class Visitor(ABC):
         pass
     @abstractmethod
     def visit_function(self, node: FunctionNode) -> None:
+        pass
+    @abstractmethod
+    def visit_call(self, node: CallNode) -> None:
         pass
 
 class Calculator(Visitor):
@@ -175,3 +186,6 @@ class Calculator(Visitor):
             decl.accept(self)
         for stmt in node.statements:
             stmt.accept(self)
+
+    def visit_call(self, node: CallNode) -> None:
+        node.expr.accept(self)

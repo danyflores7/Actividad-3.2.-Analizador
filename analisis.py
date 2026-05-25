@@ -1,7 +1,7 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode
 
 tokens = ['ID', 'INTLIT', 'LE', 'GE']
 
@@ -63,6 +63,12 @@ def p_Statement(p):
     Statement : Assignment
     """
     p[0] = p[1]
+
+def p_Statement_block(p):
+    """
+    Statement : '{' Statements '}'
+    """
+    p[0] = BlockNode(p[2])
 
 def p_Assignment(p):
     """ 
@@ -167,6 +173,10 @@ class IRGenerator(Visitor):
         for stmt in node.statements:
             stmt.accept(self)
 
+    def visit_block(self, node: BlockNode):
+        for stmt in node.statements:
+            stmt.accept(self)
+
     def visit_literal(self, node: Literal) -> None:
         self.stack.append(
             intType(int(node.value))
@@ -192,22 +202,30 @@ class IRGenerator(Visitor):
 data = """
 int main() {
     int y;
-
-    x = 10 * y;
+    y = 5;
+    {
+        x = 10 * y;
+    }
 }
 """
 lexer = lex.lex()
 parser = yacc.yacc()
 root = parser.parse(data)
 
-print(root)
+print("AST Root:", root)
 
 irgen = IRGenerator()
-
 root.accept(irgen)
-# builder.ret(irgen.stack.pop())
-# print(module)
 
-# %%
-irgen.stack
-# %%
+print("\n--- LLVM IR Stack ---")
+for val in irgen.stack:
+    print(val)
+
+# Complete main return with the last expression value on the stack if any
+if irgen.stack:
+    builder.ret(irgen.stack[-1])
+else:
+    builder.ret(intType(0)) # fallback
+
+print("\n--- Generated LLVM IR Module ---")
+print(module)

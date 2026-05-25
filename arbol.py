@@ -47,6 +47,13 @@ class Program(ASTNode):
     def accept(self, visitor: Visitor):
         visitor.visit_program(self)
 
+class BlockNode(ASTNode):
+    def __init__(self, statements: list[ASTNode]) -> None:
+        self.statements = statements
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_block(self)
+
 class Visitor(ABC):
     @abstractmethod
     def visit_literal(self, node: Literal) -> None:
@@ -59,6 +66,9 @@ class Visitor(ABC):
         pass
     @abstractmethod
     def visit_program(self, node: Program) -> None:
+        pass
+    @abstractmethod
+    def visit_block(self, node: BlockNode) -> None:
         pass
 
 class Calculator(Visitor):
@@ -85,5 +95,9 @@ class Calculator(Visitor):
             self.stack.append(lhs % rhs)
 
     def visit_program(self, node: Program) -> None:
+        for stmt in node.statements:
+            stmt.accept(self)
+
+    def visit_block(self, node: BlockNode) -> None:
         for stmt in node.statements:
             stmt.accept(self)

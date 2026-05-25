@@ -50,7 +50,17 @@ def p_Declartion(p):
 
 def p_Statements(p):
     """
-    Statements : Assignment
+    Statements : Statements Statement
+               | Statement
+    """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[2]]
+
+def p_Statement(p):
+    """
+    Statement : Assignment
     """
     p[0] = p[1]
 
@@ -154,7 +164,8 @@ class IRGenerator(Visitor):
 
     def visit_program(self, node: Program):
         node.declarations.accept(self)
-        node.statements.accept(self)
+        for stmt in node.statements:
+            stmt.accept(self)
 
     def visit_literal(self, node: Literal) -> None:
         self.stack.append(

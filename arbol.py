@@ -40,7 +40,7 @@ class BinaryOp(ASTNode):
         visitor.visit_binary_op(self)
 
 class Program(ASTNode):
-    def __init__(self, declarations: Any, statements: Any) -> None:
+    def __init__(self, declarations: Any, statements: list[ASTNode]) -> None:
         self.declarations = declarations
         self.statements = statements
 
@@ -85,4 +85,5 @@ class Calculator(Visitor):
             self.stack.append(lhs % rhs)
 
     def visit_program(self, node: Program) -> None:
-        pass
+        for stmt in node.statements:
+            stmt.accept(self)

@@ -1,14 +1,15 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode, CallNode, ForNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode, CallNode, ForNode, DoWhileNode
 
 reserved = {
     'while': 'WHILE',
     'if': 'IF',
     'else': 'ELSE',
     'return': 'RETURN',
-    'for': 'FOR'
+    'for': 'FOR',
+    'do': 'DO'
 }
 
 tokens = ['ID', 'INTLIT', 'LE', 'GE'] + list(reserved.values())
@@ -153,6 +154,12 @@ def p_Statement_for(p):
     Statement : FOR '(' ForInit Expression ';' ForIncr ')' Statement
     """
     p[0] = ForNode(p[3], p[4], p[6], p[8])
+
+def p_Statement_dowhile(p):
+    """
+    Statement : DO Statement WHILE '(' Expression ')' ';'
+    """
+    p[0] = DoWhileNode(p[2], p[5])
 
 def p_ForInit(p):
     """
@@ -479,16 +486,38 @@ class IRGenerator(Visitor):
             
         self.builder.position_at_end(exit_block)
 
+    def visit_dowhile(self, node: DoWhileNode):
+        func = self.current_func
+        
+        body_block = func.append_basic_block(name='do-body')
+        exit_block = func.append_basic_block(name='do-exit')
+        
+        if not self.builder.block.is_terminated:
+            self.builder.branch(body_block)
+            
+        self.builder.position_at_end(body_block)
+        node.body.accept(self)
+        
+        node.condition.accept(self)
+        cond_val = self.stack.pop()
+        
+        if cond_val.type != ir.IntType(1):
+            cond_val = self.builder.icmp_signed('!=', cond_val, intType(0))
+            
+        if not self.builder.block.is_terminated:
+            self.builder.cbranch(cond_val, body_block, exit_block)
+            
+        self.builder.position_at_end(exit_block)
+
 # %%
 data = """
 int main() {
-    int i;
-    int cuenta;
-    cuenta = 0;
-    for (i = 0; i < 5; i = i + 1) {
-        cuenta = cuenta + i;
-    }
-    printf(cuenta);
+    int y;
+    y = 5;
+    do {
+        y = y + 1;
+    } while (y < 10);
+    printf(y);
     return 0;
 }
 """

@@ -50,13 +50,34 @@ def p_Program(p):
 
 def p_Function(p):
     """
-    Function : ID ID '(' ID ID ')' '{' Declarations Statements '}'
-             | ID ID '(' ')' '{' Declarations Statements '}'
+    Function : ID ID '(' Parameters ')' '{' Declarations Statements '}'
     """
-    if len(p) == 11:
-        p[0] = FunctionNode(return_type=p[1], func_name=p[2], param_type=p[4], param_name=p[5], declarations=p[8], statements=p[9])
+    p[0] = FunctionNode(return_type=p[1], func_name=p[2], parameters=p[4], declarations=p[7], statements=p[8])
+
+def p_Parameters_multiple(p):
+    """
+    Parameters : Parameters ',' Parameter
+               | Parameter
+               | empty
+    """
+    if len(p) == 4:
+        p[0] = p[1] + [p[3]]
+    elif len(p) == 2 and p[1] is not None:
+        p[0] = [p[1]]
     else:
-        p[0] = FunctionNode(return_type=p[1], func_name=p[2], param_type=None, param_name=None, declarations=p[6], statements=p[7])
+        p[0] = []
+
+def p_Parameter(p):
+    """
+    Parameter : ID ID
+    """
+    p[0] = Variable(p[2], p[1])
+
+def p_empty(p):
+    """
+    empty :
+    """
+    p[0] = None
 
 def p_Declarations(p):
     """
@@ -122,7 +143,7 @@ def p_Statement_return(p):
 
 def p_Statement_call(p):
     """
-    Statement : ID '(' Expression ')' ';'
+    Statement : ID '(' Arguments ')' ';'
     """
     p[0] = CallNode(p[1], p[3])
 
@@ -192,9 +213,22 @@ def p_Factor_EXP(p):
 
 def p_Factor_call(p):
     """
-    Factor : ID '(' Expression ')'
+    Factor : ID '(' Arguments ')'
     """
     p[0] = CallNode(p[1], p[3])
+
+def p_Arguments(p):
+    """
+    Arguments : Arguments ',' Expression
+              | Expression
+              | empty
+    """
+    if len(p) == 4:
+        p[0] = p[1] + [p[3]]
+    elif len(p) == 2 and p[1] is not None:
+        p[0] = [p[1]]
+    else:
+        p[0] = []
         
 def p_error(p):
     print("Syntax error in input!", p)
@@ -227,20 +261,21 @@ class IRGenerator(Visitor):
         self.current_func = None
 
     def visit_function(self, node: FunctionNode):
-        fnty = ir.FunctionType(intType, [intType] if node.param_name else [])
+        self.symbol_table = dict()
+        fnty = ir.FunctionType(intType, [intType] * len(node.parameters))
         func = ir.Function(module, fnty, name=node.func_name)
         self.current_func = func
         
         entry = func.append_basic_block(name='entry')
         self.builder = ir.IRBuilder(entry)
         
-        # If there is a parameter, allocate and store the argument
-        if node.param_name:
-            arg = func.args[0]
-            arg.name = node.param_name
-            ptr = self.builder.alloca(intType, name=node.param_name)
+        # If there are parameters, allocate and store the arguments in order
+        for i, param_node in enumerate(node.parameters):
+            arg = func.args[i]
+            arg.name = param_node.name
+            ptr = self.builder.alloca(intType, name=param_node.name)
             self.builder.store(arg, ptr)
-            self.symbol_table[node.param_name] = ptr
+            self.symbol_table[param_node.name] = ptr
             
         for decl in node.declarations:
             decl.accept(self)
@@ -367,9 +402,13 @@ class IRGenerator(Visitor):
             self.stack.append(self.builder.zext(tmp, intType))
 
     def visit_call(self, node: CallNode):
-        node.expr.accept(self)
-        arg_val = self.stack.pop()
+        args_list = []
+        for arg in node.arguments:
+            arg.accept(self)
+            args_list.append(self.stack.pop())
+            
         if node.func_name == "printf":
+            arg_val = args_list[0]
             printf_func = module.globals.get("printf")
             voidptr_ty = ir.IntType(8).as_pointer()
             if printf_func is None:
@@ -390,20 +429,16 @@ class IRGenerator(Visitor):
             callee_func = module.globals.get(node.func_name)
             if callee_func is None:
                 raise ValueError(f"Function '{node.func_name}' not defined in module")
-            res = self.builder.call(callee_func, [arg_val])
+            res = self.builder.call(callee_func, args_list)
             self.stack.append(res)
 
 # %%
 data = """
-int factorial(int n) {
-    if (n <= 1) {
-        return 1;
-    }
-    return n * factorial(n - 1);
+int suma(int a, int b) {
+    return a + b;
 }
-
 int main() {
-    printf(factorial(5));
+    printf(suma(5, 10));
     return 0;
 }
 """

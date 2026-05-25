@@ -80,11 +80,10 @@ class ReturnNode(ASTNode):
         visitor.visit_return(self)
 
 class FunctionNode(ASTNode):
-    def __init__(self, return_type: str, func_name: str, param_type: str | None, param_name: str | None, declarations: list[ASTNode], statements: list[ASTNode]) -> None:
+    def __init__(self, return_type: str, func_name: str, parameters: list[Variable], declarations: list[ASTNode], statements: list[ASTNode]) -> None:
         self.return_type = return_type
         self.func_name = func_name
-        self.param_type = param_type
-        self.param_name = param_name
+        self.parameters = parameters
         self.declarations = declarations
         self.statements = statements
 
@@ -92,9 +91,9 @@ class FunctionNode(ASTNode):
         visitor.visit_function(self)
 
 class CallNode(ASTNode):
-    def __init__(self, func_name: str, expr: ASTNode) -> None:
+    def __init__(self, func_name: str, arguments: list[ASTNode]) -> None:
         self.func_name = func_name
-        self.expr = expr
+        self.arguments = arguments
 
     def accept(self, visitor: Visitor):
         visitor.visit_call(self)
@@ -188,4 +187,5 @@ class Calculator(Visitor):
             stmt.accept(self)
 
     def visit_call(self, node: CallNode) -> None:
-        node.expr.accept(self)
+        for arg in node.arguments:
+            arg.accept(self)

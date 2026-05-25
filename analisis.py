@@ -1,12 +1,13 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode
 
 reserved = {
     'while': 'WHILE',
     'if': 'IF',
-    'else': 'ELSE'
+    'else': 'ELSE',
+    'return': 'RETURN'
 }
 
 tokens = ['ID', 'INTLIT', 'LE', 'GE'] + list(reserved.values())
@@ -98,6 +99,12 @@ def p_Statement_if_else(p):
     Statement : IF '(' Expression ')' Statement ELSE Statement
     """
     p[0] = IfNode(p[3], p[5], p[7])
+
+def p_Statement_return(p):
+    """
+    Statement : RETURN Expression ';'
+    """
+    p[0] = ReturnNode(p[2])
 
 def p_Assignment(p):
     """ 
@@ -292,6 +299,11 @@ class IRGenerator(Visitor):
         ptr = self.symbol_table[node.var_name]
         builder.store(val, ptr)
 
+    def visit_return(self, node: ReturnNode):
+        node.expr.accept(self)
+        val = self.stack.pop()
+        builder.ret(val)
+
     def visit_binary_op(self, node: BinaryOp) -> None:
         node.lhs.accept(self)
         node.rhs.accept(self)
@@ -309,9 +321,8 @@ class IRGenerator(Visitor):
 data = """
 int main() {
     int x;
-    int y;
-    x = 5;
-    y = 10;
+    x = 5 + 3;
+    return x;
 }
 """
 lexer = lex.lex()
@@ -326,12 +337,6 @@ root.accept(irgen)
 print("\n--- LLVM IR Stack ---")
 for val in irgen.stack:
     print(val)
-
-# Complete main return with the last expression value on the stack if any
-if irgen.stack:
-    builder.ret(irgen.stack[-1])
-else:
-    builder.ret(intType(0)) # fallback
 
 print("\n--- Generated LLVM IR Module ---")
 print(module)

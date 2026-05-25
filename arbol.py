@@ -72,6 +72,13 @@ class IfNode(ASTNode):
     def accept(self, visitor: Visitor):
         visitor.visit_if(self)
 
+class ReturnNode(ASTNode):
+    def __init__(self, expr: ASTNode) -> None:
+        self.expr = expr
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_return(self)
+
 class Visitor(ABC):
     @abstractmethod
     def visit_literal(self, node: Literal) -> None:
@@ -96,6 +103,9 @@ class Visitor(ABC):
         pass
     @abstractmethod
     def visit_if(self, node: IfNode) -> None:
+        pass
+    @abstractmethod
+    def visit_return(self, node: ReturnNode) -> None:
         pass
 
 class Calculator(Visitor):
@@ -141,3 +151,6 @@ class Calculator(Visitor):
         node.then_stmt.accept(self)
         if node.else_stmt:
             node.else_stmt.accept(self)
+
+    def visit_return(self, node: ReturnNode) -> None:
+        node.expr.accept(self)

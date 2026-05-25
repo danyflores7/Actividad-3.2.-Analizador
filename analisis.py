@@ -1,7 +1,7 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode
 
 reserved = {
     'while': 'WHILE',
@@ -40,19 +40,33 @@ def t_error(t):
 
 def p_Program(p):
     """
-    Program : ID ID '(' ')' '{' Declarations Statements '}'
-    """
-    p[0] = Program(p[6], p[7])
-
-def p_Declarations(p):
-    """
-    Declarations : Declarations Declaration
-                 | Declaration
+    Program : Function Program
+            | Function
     """
     if len(p) == 2:
         p[0] = [p[1]]
     else:
+        p[0] = [p[1]] + p[2]
+
+def p_Function(p):
+    """
+    Function : ID ID '(' ID ID ')' '{' Declarations Statements '}'
+             | ID ID '(' ')' '{' Declarations Statements '}'
+    """
+    if len(p) == 11:
+        p[0] = FunctionNode(return_type=p[1], func_name=p[2], param_type=p[4], param_name=p[5], declarations=p[8], statements=p[9])
+    else:
+        p[0] = FunctionNode(return_type=p[1], func_name=p[2], param_type=None, param_name=None, declarations=p[6], statements=p[7])
+
+def p_Declarations(p):
+    """
+    Declarations : Declarations Declaration
+                 | 
+    """
+    if len(p) == 3:
         p[0] = p[1] + [p[2]]
+    else:
+        p[0] = []
 
 def p_Declartion(p):
     """
@@ -192,17 +206,33 @@ intType = ir.IntType(32)
 module = ir.Module(name="prog")
 
 # int main() {
-fnty = ir.FunctionType(intType, [])
-func = ir.Function(module, fnty, name='main')
-
-entry = func.append_basic_block('entry')
-builder = ir.IRBuilder(entry)
-
-
 class IRGenerator(Visitor):
     def __init__(self):
         self.stack = []
         self.symbol_table = dict()
+        self.builder = None
+        self.current_func = None
+
+    def visit_function(self, node: FunctionNode):
+        fnty = ir.FunctionType(intType, [intType] if node.param_name else [])
+        func = ir.Function(module, fnty, name=node.func_name)
+        self.current_func = func
+        
+        entry = func.append_basic_block(name='entry')
+        self.builder = ir.IRBuilder(entry)
+        
+        # If there is a parameter, allocate and store the argument
+        if node.param_name:
+            arg = func.args[0]
+            arg.name = node.param_name
+            ptr = self.builder.alloca(intType, name=node.param_name)
+            self.builder.store(arg, ptr)
+            self.symbol_table[node.param_name] = ptr
+            
+        for decl in node.declarations:
+            decl.accept(self)
+        for stmt in node.statements:
+            stmt.accept(self)
 
     def visit_program(self, node: Program):
         for decl in node.declarations:
@@ -215,7 +245,7 @@ class IRGenerator(Visitor):
             stmt.accept(self)
 
     def visit_while(self, node: WhileNode):
-        func = builder.function
+        func = self.current_func
         
         # 1. Create the basic blocks
         head_block = func.append_basic_block(name='while-head')
@@ -223,29 +253,31 @@ class IRGenerator(Visitor):
         exit_block = func.append_basic_block(name='while-exit')
         
         # 2. Branch from current block to head_block
-        builder.branch(head_block)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(head_block)
         
         # 3. Position in head_block and compile condition
-        builder.position_at_end(head_block)
+        self.builder.position_at_end(head_block)
         node.condition.accept(self)
         cond_val = self.stack.pop()
         
         # Ensure condition is i1
         if cond_val.type != ir.IntType(1):
-            cond_val = builder.icmp_signed('!=', cond_val, intType(0))
+            cond_val = self.builder.icmp_signed('!=', cond_val, intType(0))
             
-        builder.cbranch(cond_val, body_block, exit_block)
+        self.builder.cbranch(cond_val, body_block, exit_block)
         
         # 4. Position in body_block and compile body
-        builder.position_at_end(body_block)
+        self.builder.position_at_end(body_block)
         node.body.accept(self)
-        builder.branch(head_block)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(head_block)
         
         # 5. Position in exit_block for subsequent instructions
-        builder.position_at_end(exit_block)
+        self.builder.position_at_end(exit_block)
 
     def visit_if(self, node: IfNode):
-        func = builder.function
+        func = self.current_func
         
         # 1. Create blocks
         then_block = func.append_basic_block(name='if-then')
@@ -258,24 +290,26 @@ class IRGenerator(Visitor):
         
         # Ensure condition is i1
         if cond_val.type != ir.IntType(1):
-            cond_val = builder.icmp_signed('!=', cond_val, intType(0))
+            cond_val = self.builder.icmp_signed('!=', cond_val, intType(0))
             
         false_dest = else_block if else_block else exit_block
-        builder.cbranch(cond_val, then_block, false_dest)
+        self.builder.cbranch(cond_val, then_block, false_dest)
         
         # 3. Position in then_block and compile
-        builder.position_at_end(then_block)
+        self.builder.position_at_end(then_block)
         node.then_stmt.accept(self)
-        builder.branch(exit_block)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(exit_block)
         
         # 4. Position in else_block and compile (if exists)
         if else_block and node.else_stmt:
-            builder.position_at_end(else_block)
+            self.builder.position_at_end(else_block)
             node.else_stmt.accept(self)
-            builder.branch(exit_block)
+            if not self.builder.block.is_terminated:
+                self.builder.branch(exit_block)
             
         # 5. Position in exit_block
-        builder.position_at_end(exit_block)
+        self.builder.position_at_end(exit_block)
 
     def visit_literal(self, node: Literal) -> None:
         self.stack.append(
@@ -285,24 +319,24 @@ class IRGenerator(Visitor):
     def visit_variable(self, node: Variable):
         if node.name not in self.symbol_table:
             # Declaration: allocate memory
-            ptr = builder.alloca(intType, name=node.name)
+            ptr = self.builder.alloca(intType, name=node.name)
             self.symbol_table[node.name] = ptr
         else:
             # Reference: load value from memory and push to stack
             ptr = self.symbol_table[node.name]
-            val = builder.load(ptr, name=node.name)
+            val = self.builder.load(ptr, name=node.name)
             self.stack.append(val)
 
     def visit_assignment(self, node: AssignmentNode):
         node.expr.accept(self)
         val = self.stack.pop()
         ptr = self.symbol_table[node.var_name]
-        builder.store(val, ptr)
+        self.builder.store(val, ptr)
 
     def visit_return(self, node: ReturnNode):
         node.expr.accept(self)
         val = self.stack.pop()
-        builder.ret(val)
+        self.builder.ret(val)
 
     def visit_binary_op(self, node: BinaryOp) -> None:
         node.lhs.accept(self)
@@ -310,19 +344,20 @@ class IRGenerator(Visitor):
         rhs = self.stack.pop()
         lhs = self.stack.pop()
         if node.op == '+':
-            self.stack.append(builder.add(lhs, rhs))
+            self.stack.append(self.builder.add(lhs, rhs))
         elif node.op == '*':
-            self.stack.append(builder.mul(lhs, rhs))
+            self.stack.append(self.builder.mul(lhs, rhs))
         else:
-            tmp = builder.icmp_signed(node.op, lhs, rhs)
-            self.stack.append(builder.zext(tmp, intType))
+            tmp = self.builder.icmp_signed(node.op, lhs, rhs)
+            self.stack.append(self.builder.zext(tmp, intType))
 
 # %%
 data = """
-int main() {
-    int x;
-    x = 5 + 3;
-    return x;
+int factorial(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return 5; 
 }
 """
 lexer = lex.lex()
@@ -332,7 +367,8 @@ root = parser.parse(data)
 print("AST Root:", root)
 
 irgen = IRGenerator()
-root.accept(irgen)
+for func_node in root:
+    func_node.accept(irgen)
 
 print("\n--- LLVM IR Stack ---")
 for val in irgen.stack:

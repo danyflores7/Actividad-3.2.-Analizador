@@ -79,6 +79,18 @@ class ReturnNode(ASTNode):
     def accept(self, visitor: Visitor):
         visitor.visit_return(self)
 
+class FunctionNode(ASTNode):
+    def __init__(self, return_type: str, func_name: str, param_type: str | None, param_name: str | None, declarations: list[ASTNode], statements: list[ASTNode]) -> None:
+        self.return_type = return_type
+        self.func_name = func_name
+        self.param_type = param_type
+        self.param_name = param_name
+        self.declarations = declarations
+        self.statements = statements
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_function(self)
+
 class Visitor(ABC):
     @abstractmethod
     def visit_literal(self, node: Literal) -> None:
@@ -106,6 +118,9 @@ class Visitor(ABC):
         pass
     @abstractmethod
     def visit_return(self, node: ReturnNode) -> None:
+        pass
+    @abstractmethod
+    def visit_function(self, node: FunctionNode) -> None:
         pass
 
 class Calculator(Visitor):
@@ -154,3 +169,9 @@ class Calculator(Visitor):
 
     def visit_return(self, node: ReturnNode) -> None:
         node.expr.accept(self)
+
+    def visit_function(self, node: FunctionNode) -> None:
+        for decl in node.declarations:
+            decl.accept(self)
+        for stmt in node.statements:
+            stmt.accept(self)

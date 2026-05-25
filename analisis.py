@@ -1,13 +1,14 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode, CallNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode, CallNode, ForNode
 
 reserved = {
     'while': 'WHILE',
     'if': 'IF',
     'else': 'ELSE',
-    'return': 'RETURN'
+    'return': 'RETURN',
+    'for': 'FOR'
 }
 
 tokens = ['ID', 'INTLIT', 'LE', 'GE'] + list(reserved.values())
@@ -146,6 +147,24 @@ def p_Statement_call(p):
     Statement : ID '(' Arguments ')' ';'
     """
     p[0] = CallNode(p[1], p[3])
+
+def p_Statement_for(p):
+    """
+    Statement : FOR '(' ForInit Expression ';' ForIncr ')' Statement
+    """
+    p[0] = ForNode(p[3], p[4], p[6], p[8])
+
+def p_ForInit(p):
+    """
+    ForInit : ID '=' Expression ';'
+    """
+    p[0] = AssignmentNode(p[1], p[3])
+
+def p_ForIncr(p):
+    """
+    ForIncr : ID '=' Expression
+    """
+    p[0] = AssignmentNode(p[1], p[3])
 
 def p_Assignment(p):
     """ 
@@ -432,13 +451,44 @@ class IRGenerator(Visitor):
             res = self.builder.call(callee_func, args_list)
             self.stack.append(res)
 
+    def visit_for(self, node: ForNode):
+        node.init_stmt.accept(self)
+        func = self.current_func
+        
+        head_block = func.append_basic_block(name='for-head')
+        body_block = func.append_basic_block(name='for-body')
+        exit_block = func.append_basic_block(name='for-exit')
+        
+        if not self.builder.block.is_terminated:
+            self.builder.branch(head_block)
+            
+        self.builder.position_at_end(head_block)
+        node.condition.accept(self)
+        cond_val = self.stack.pop()
+        
+        if cond_val.type != ir.IntType(1):
+            cond_val = self.builder.icmp_signed('!=', cond_val, intType(0))
+            
+        self.builder.cbranch(cond_val, body_block, exit_block)
+        
+        self.builder.position_at_end(body_block)
+        node.body.accept(self)
+        node.incr_stmt.accept(self)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(head_block)
+            
+        self.builder.position_at_end(exit_block)
+
 # %%
 data = """
-int suma(int a, int b) {
-    return a + b;
-}
 int main() {
-    printf(suma(5, 10));
+    int i;
+    int cuenta;
+    cuenta = 0;
+    for (i = 0; i < 5; i = i + 1) {
+        cuenta = cuenta + i;
+    }
+    printf(cuenta);
     return 0;
 }
 """

@@ -55,6 +55,16 @@ class WhileNode(ASTNode):
     def accept(self, visitor: Visitor):
         visitor.visit_while(self)
 
+class ForNode(ASTNode):
+    def __init__(self, init_stmt: ASTNode, condition: ASTNode, incr_stmt: ASTNode, body: ASTNode) -> None:
+        self.init_stmt = init_stmt
+        self.condition = condition
+        self.incr_stmt = incr_stmt
+        self.body = body
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_for(self)
+
 class AssignmentNode(ASTNode):
     def __init__(self, var_name: str, expr: ASTNode) -> None:
         self.var_name = var_name
@@ -132,6 +142,9 @@ class Visitor(ABC):
     @abstractmethod
     def visit_call(self, node: CallNode) -> None:
         pass
+    @abstractmethod
+    def visit_for(self, node: ForNode) -> None:
+        pass
 
 class Calculator(Visitor):
     def __init__(self):
@@ -189,3 +202,9 @@ class Calculator(Visitor):
     def visit_call(self, node: CallNode) -> None:
         for arg in node.arguments:
             arg.accept(self)
+
+    def visit_for(self, node: ForNode) -> None:
+        node.init_stmt.accept(self)
+        node.condition.accept(self)
+        node.incr_stmt.accept(self)
+        node.body.accept(self)

@@ -1,9 +1,13 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode
 
-tokens = ['ID', 'INTLIT', 'LE', 'GE']
+reserved = {
+    'while': 'WHILE'
+}
+
+tokens = ['ID', 'INTLIT', 'LE', 'GE'] + list(reserved.values())
 
 t_LE = r'<='
 t_GE = r'>='
@@ -13,6 +17,7 @@ literals = '+-*/%(){}<>=;,' # ['+','-','*','/', '%', '(', ')', '<', '>', '=', ';
 
 def t_ID(t):
      r'[a-zA-Z_][a-zA-Z_0-9]*'
+     t.type = reserved.get(t.value, 'ID')
      return t
 
 def t_INTLIT(t):
@@ -69,6 +74,12 @@ def p_Statement_block(p):
     Statement : '{' Statements '}'
     """
     p[0] = BlockNode(p[2])
+
+def p_Statement_while(p):
+    """
+    Statement : WHILE '(' Expression ')' Statement
+    """
+    p[0] = WhileNode(p[3], p[5])
 
 def p_Assignment(p):
     """ 
@@ -177,6 +188,36 @@ class IRGenerator(Visitor):
         for stmt in node.statements:
             stmt.accept(self)
 
+    def visit_while(self, node: WhileNode):
+        func = builder.function
+        
+        # 1. Create the basic blocks
+        head_block = func.append_basic_block(name='while-head')
+        body_block = func.append_basic_block(name='while-body')
+        exit_block = func.append_basic_block(name='while-exit')
+        
+        # 2. Branch from current block to head_block
+        builder.branch(head_block)
+        
+        # 3. Position in head_block and compile condition
+        builder.position_at_end(head_block)
+        node.condition.accept(self)
+        cond_val = self.stack.pop()
+        
+        # Ensure condition is i1
+        if cond_val.type != ir.IntType(1):
+            cond_val = builder.icmp_signed('!=', cond_val, intType(0))
+            
+        builder.cbranch(cond_val, body_block, exit_block)
+        
+        # 4. Position in body_block and compile body
+        builder.position_at_end(body_block)
+        node.body.accept(self)
+        builder.branch(head_block)
+        
+        # 5. Position in exit_block for subsequent instructions
+        builder.position_at_end(exit_block)
+
     def visit_literal(self, node: Literal) -> None:
         self.stack.append(
             intType(int(node.value))
@@ -203,8 +244,8 @@ data = """
 int main() {
     int y;
     y = 5;
-    {
-        x = 10 * y;
+    while (y < 10) {
+        y = y + 1;
     }
 }
 """

@@ -54,6 +54,14 @@ class BlockNode(ASTNode):
     def accept(self, visitor: Visitor):
         visitor.visit_block(self)
 
+class WhileNode(ASTNode):
+    def __init__(self, condition: ASTNode, body: ASTNode) -> None:
+        self.condition = condition
+        self.body = body
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_while(self)
+
 class Visitor(ABC):
     @abstractmethod
     def visit_literal(self, node: Literal) -> None:
@@ -69,6 +77,9 @@ class Visitor(ABC):
         pass
     @abstractmethod
     def visit_block(self, node: BlockNode) -> None:
+        pass
+    @abstractmethod
+    def visit_while(self, node: WhileNode) -> None:
         pass
 
 class Calculator(Visitor):
@@ -101,3 +112,7 @@ class Calculator(Visitor):
     def visit_block(self, node: BlockNode) -> None:
         for stmt in node.statements:
             stmt.accept(self)
+
+    def visit_while(self, node: WhileNode) -> None:
+        node.condition.accept(self)
+        node.body.accept(self)

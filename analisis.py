@@ -45,9 +45,13 @@ def p_Program(p):
 
 def p_Declarations(p):
     """
-    Declarations : Declaration
+    Declarations : Declarations Declaration
+                 | Declaration
     """
-    p[0] = p[1]
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[2]]
 
 def p_Declartion(p):
     """
@@ -194,7 +198,8 @@ class IRGenerator(Visitor):
         self.symbol_table = dict()
 
     def visit_program(self, node: Program):
-        node.declarations.accept(self)
+        for decl in node.declarations:
+            decl.accept(self)
         for stmt in node.statements:
             stmt.accept(self)
 
@@ -303,13 +308,10 @@ class IRGenerator(Visitor):
 # %%
 data = """
 int main() {
+    int x;
     int y;
-    y = 5;
-    if (y < 10) {
-        y = 1;
-    } else {
-        y = 2;
-    }
+    x = 5;
+    y = 10;
 }
 """
 lexer = lex.lex()

@@ -1,7 +1,7 @@
 # %%
 import ply.lex as lex
 import ply.yacc as yacc
-from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode, CallNode, ForNode, DoWhileNode
+from arbol import Literal, BinaryOp, Variable, Program, Visitor, BlockNode, WhileNode, AssignmentNode, IfNode, ReturnNode, FunctionNode, CallNode, ForNode, DoWhileNode, SwitchNode, CaseNode
 
 reserved = {
     'while': 'WHILE',
@@ -9,7 +9,10 @@ reserved = {
     'else': 'ELSE',
     'return': 'RETURN',
     'for': 'FOR',
-    'do': 'DO'
+    'do': 'DO',
+    'switch': 'SWITCH',
+    'case': 'CASE',
+    'default': 'DEFAULT'
 }
 
 tokens = ['ID', 'INTLIT', 'FLOATLIT', 'LE', 'GE'] + list(reserved.values())
@@ -18,7 +21,7 @@ t_LE = r'<='
 t_GE = r'>='
 
 t_ignore  = ' \t'
-literals = '+-*/%(){}<>=;,' # ['+','-','*','/', '%', '(', ')', '<', '>', '=', ';', ]
+literals = '+-*/%(){}<>=;,:'
 
 def t_ID(t):
      r'[a-zA-Z_][a-zA-Z_0-9]*'
@@ -165,6 +168,32 @@ def p_Statement_dowhile(p):
     Statement : DO Statement WHILE '(' Expression ')' ';'
     """
     p[0] = DoWhileNode(p[2], p[5])
+
+def p_Statement_switch(p):
+    """
+    Statement : SWITCH '(' Expression ')' '{' Cases '}'
+    """
+    p[0] = SwitchNode(p[3], p[6])
+
+def p_Cases(p):
+    """
+    Cases : Cases Case
+          | Case
+    """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[2]]
+
+def p_Case(p):
+    """
+    Case : CASE INTLIT ':' Statements
+         | DEFAULT ':' Statements
+    """
+    if len(p) == 5:
+        p[0] = CaseNode(value=int(p[2]), statements=p[4])
+    else:
+        p[0] = CaseNode(value=None, statements=p[3])
 
 def p_ForInit(p):
     """
@@ -547,14 +576,74 @@ class IRGenerator(Visitor):
             
         self.builder.position_at_end(exit_block)
 
+    def visit_case(self, node: CaseNode):
+        for stmt in node.statements:
+            stmt.accept(self)
+
+    def visit_switch(self, node: SwitchNode):
+        func = self.current_func
+        
+        # Create exit block
+        exit_block = func.append_basic_block(name="switch-exit")
+        
+        # Search for default case
+        default_case = None
+        for c in node.cases:
+            if c.value is None:
+                default_case = c
+                break
+                
+        # Determine default block reference
+        if default_case:
+            default_block = func.append_basic_block(name="case-default")
+        else:
+            default_block = exit_block
+            
+        node.expr.accept(self)
+        cond_val = self.stack.pop()
+        
+        # Create switch instruction
+        switch_inst = self.builder.switch(cond_val, default_block)
+        
+        # Emit all cases (except default)
+        for c_node in node.cases:
+            if c_node.value is not None:
+                case_block = func.append_basic_block(name=f"case-{c_node.value}")
+                
+                # Position builder in case_block and compile statements
+                self.builder.position_at_end(case_block)
+                for stmt in c_node.statements:
+                    stmt.accept(self)
+                if not self.builder.block.is_terminated:
+                    self.builder.branch(exit_block)
+                    
+                # Add case to switch instruction
+                switch_inst.add_case(ir.Constant(intType, c_node.value), case_block)
+                
+        # Emit default block if it exists
+        if default_case:
+            self.builder.position_at_end(default_block)
+            for stmt in default_case.statements:
+                stmt.accept(self)
+            if not self.builder.block.is_terminated:
+                self.builder.branch(exit_block)
+                
+        # Finally, position builder at exit block
+        self.builder.position_at_end(exit_block)
+
 # %%
 data = """
 int main() {
-    float x;
-    int y;
-    y = 10;
-    x = y;
-    printf(y);
+    int x;
+    int resultado;
+    x = 2;
+    resultado = 0;
+    switch (x) {
+        case 1: { resultado = 10; }
+        case 2: { resultado = 20; }
+        default: { resultado = 99; }
+    }
+    printf(resultado);
     return 0;
 }
 """

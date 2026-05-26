@@ -73,6 +73,22 @@ class DoWhileNode(ASTNode):
     def accept(self, visitor: Visitor):
         visitor.visit_dowhile(self)
 
+class CaseNode(ASTNode):
+    def __init__(self, value: int | None, statements: list[ASTNode]) -> None:
+        self.value = value
+        self.statements = statements
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_case(self)
+
+class SwitchNode(ASTNode):
+    def __init__(self, expr: ASTNode, cases: list[CaseNode]) -> None:
+        self.expr = expr
+        self.cases = cases
+
+    def accept(self, visitor: Visitor):
+        visitor.visit_switch(self)
+
 class AssignmentNode(ASTNode):
     def __init__(self, var_name: str, expr: ASTNode) -> None:
         self.var_name = var_name
@@ -156,6 +172,12 @@ class Visitor(ABC):
     @abstractmethod
     def visit_dowhile(self, node: DoWhileNode) -> None:
         pass
+    @abstractmethod
+    def visit_case(self, node: CaseNode) -> None:
+        pass
+    @abstractmethod
+    def visit_switch(self, node: SwitchNode) -> None:
+        pass
 
 class Calculator(Visitor):
     def __init__(self):
@@ -223,3 +245,12 @@ class Calculator(Visitor):
     def visit_dowhile(self, node: DoWhileNode) -> None:
         node.body.accept(self)
         node.condition.accept(self)
+
+    def visit_case(self, node: CaseNode) -> None:
+        for stmt in node.statements:
+            stmt.accept(self)
+
+    def visit_switch(self, node: SwitchNode) -> None:
+        node.expr.accept(self)
+        for c in node.cases:
+            c.accept(self)
